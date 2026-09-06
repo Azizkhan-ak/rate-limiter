@@ -2,6 +2,7 @@ package com.ratelimiter.filter;
 
 import com.ratelimiter.model.RateLimitResult;
 import com.ratelimiter.model.RateLimitRule;
+import com.ratelimiter.proxy.ProxyHandler;
 import com.ratelimiter.service.RateLimiterService;
 import com.ratelimiter.service.RuleStore;
 import jakarta.servlet.FilterChain;
@@ -10,6 +11,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
@@ -35,6 +37,7 @@ public class RateLimiterFilter extends OncePerRequestFilter {
 
     private final RateLimiterService rateLimiterService;
     private final RuleStore ruleStore;
+    private final ProxyHandler proxyHandler;
 
     @Override
     protected void doFilterInternal(HttpServletRequest request,
@@ -43,20 +46,37 @@ public class RateLimiterFilter extends OncePerRequestFilter {
             throws ServletException, IOException {
 
         // TODO:
-        // 1. Extract clientId — check header "X-Client-Id", fallback to request.getRemoteAddr()
-        // 2. Extract route — request.getRequestURI()
-        // 3. ruleStore.resolve(clientId, route)
-        // 4. If no rule found → allow (filterChain.doFilter)
-        // 5. rateLimiterService.evaluate(clientId, rule)
-        // 6. Add headers: X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset
-        // 7. If denied → response.setStatus(429), write JSON body, return
-        // 8. If allowed → filterChain.doFilter(request, response)
 
-        filterChain.doFilter(request, response); // placeholder — passes everything through
+        String clientId = extractClientId(request);
+        String route = request.getRequestURI();
+
+        Optional<RateLimitRule> rateLimitRule = ruleStore.resolve(clientId,route);
+
+        if(rateLimitRule.isPresent()){
+            RateLimitResult rateLimitResult = rateLimiterService.evaluate(clientId,rateLimitRule.get());
+            if (rateLimitResult.isAllowed()) {
+                response.addHeader("X-RateLimit-Limit", String.valueOf(rateLimitResult.getLimit()));
+                response.addHeader("X-RateLimit-Remaining", String.valueOf(rateLimitResult.getRemaining()));
+                response.addHeader("X-RateLimit-Reset", String.valueOf(rateLimitResult.getResetAt()));
+                proxyHandler.forward(request,response,rateLimitRule.get().getTargetUrl());
+            } else {
+                response.setStatus(HttpStatus.TOO_MANY_REQUESTS.value()); // 429
+                response.addHeader("X-RateLimit-Limit", String.valueOf(rateLimitResult.getLimit()));
+                response.addHeader("X-RateLimit-Remaining", "0");
+                response.addHeader("X-RateLimit-Reset", String.valueOf(rateLimitResult.getResetAt()));
+                response.getWriter().write("Rate limit exceeded");
+            }
+        }
     }
 
     private String extractClientId(HttpServletRequest request) {
         // TODO: check X-Client-Id header first, then X-API-Key, then IP
+        String clientId = request.getHeader("X-Client-Id");
+        if (clientId != null && !clientId.isBlank()) return clientId;
+
+        String apiKey = request.getHeader("X-API-Key");
+        if (apiKey != null && !apiKey.isBlank()) return apiKey;
+
         return request.getRemoteAddr();
     }
 }

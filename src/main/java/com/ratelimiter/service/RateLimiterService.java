@@ -9,6 +9,7 @@ import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Core rate limiting logic.
@@ -24,7 +25,7 @@ import java.util.List;
 public class RateLimiterService {
 
     private final StringRedisTemplate redisTemplate;
-    private final DefaultRedisScript<Long> slidingWindowScript;
+    private final DefaultRedisScript<List> slidingWindowScript;
 
     /**
      * Evaluates whether this request should be allowed.
@@ -43,17 +44,39 @@ public class RateLimiterService {
 
     // -------------------------------------------------------------------------
     // SLIDING WINDOW
-    // Redis key: ratelimit:sliding:{clientId}
-    // Uses ZSET — score = timestamp, value = timestamp
+    // Redis key: ratelimit:sliding:{clientId}:{route}
+    // Uses ZSET — score = timestamp, value = uuid
     // Lua script handles atomic check + add + remove old entries
     // -------------------------------------------------------------------------
     private RateLimitResult slidingWindow(String clientId, RateLimitRule rule) {
         // TODO: implement sliding window using Lua script
+
+        String key = "ratelimit:sliding:{"+clientId+"}:{"+rule.getRoute()+"}";
+        long now = System.currentTimeMillis();
+        long windowMs = rule.getWindowSeconds() * 1000L;
+
+        List<Long> result = redisTemplate.execute(
+                slidingWindowScript,
+                List.of(key),
+                String.valueOf(now),
+                String.valueOf(windowMs),
+                String.valueOf(rule.getLimit())
+        );
+
+        boolean allowed = result.get(0) == 1L;
+        long remaining  = result.get(1);
+        long resetAt    = result.get(2);
+
+        return RateLimitResult.builder()
+                    .limit(rule.getLimit())
+                    .allowed(allowed)
+                    .resetAt(resetAt)
+                    .remaining(remaining).build();
+
         // 1. Build the Redis key
         // 2. Execute slidingWindowScript with current timestamp, windowMs, limit
         // 3. Parse result — 1 = allowed, 0 = denied
         // 4. Return RateLimitResult with remaining count and resetAt
-        throw new UnsupportedOperationException("TODO: implement sliding window");
     }
 
     // -------------------------------------------------------------------------
@@ -63,8 +86,21 @@ public class RateLimiterService {
     // Uses INCR + EXPIRE
     // -------------------------------------------------------------------------
     private RateLimitResult fixedWindow(String clientId, RateLimitRule rule) {
-        // TODO: implement fixed window
-        throw new UnsupportedOperationException("TODO: implement fixed window");
+
+        Long currentBucket = ((System.currentTimeMillis()/1000)/rule.getWindowSeconds());
+        String key = "ratelimit:fixed:{"+clientId+"}:{"+rule.getRoute()+"}:{"+currentBucket+"}";
+        Long counter = redisTemplate.opsForValue().increment(key);
+
+        if(counter == 1){
+            redisTemplate.expire(key, rule.getWindowSeconds(), TimeUnit.SECONDS);
+        }
+
+        return RateLimitResult.builder()
+                .allowed(rule.getLimit()>=counter)
+                .remaining(Math.max(0, rule.getLimit() - counter))
+                .resetAt((currentBucket + 1) * rule.getWindowSeconds())
+                .limit(rule.getLimit())
+                .build();
     }
 
     // -------------------------------------------------------------------------

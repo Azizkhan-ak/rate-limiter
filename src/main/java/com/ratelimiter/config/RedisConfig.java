@@ -6,6 +6,8 @@ import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 
+import java.util.List;
+
 /**
  * Redis configuration.
  *
@@ -44,11 +46,30 @@ public class RedisConfig {
      *   4. If count >= limit → return 0 (denied)
      */
     @Bean
-    public DefaultRedisScript<Long> slidingWindowScript() {
-        DefaultRedisScript<Long> script = new DefaultRedisScript<>();
+    public DefaultRedisScript<List> slidingWindowScript() {
+        DefaultRedisScript<List> script = new DefaultRedisScript<>();
         // TODO: set the Lua script string here
-        script.setScriptText("return 1"); // placeholder — always allows
-        script.setResultType(Long.class);
+        script.setScriptText("""
+        local key = KEYS[1]
+        local now = tonumber(ARGV[1])
+        local windowMs = tonumber(ARGV[2])
+        local limit = tonumber(ARGV[3])
+
+        redis.call('ZREMRANGEBYSCORE', key, 0, now - windowMs)
+        local count = redis.call('ZCARD', key)
+
+        if count < limit then
+            redis.call('ZADD', key, now, tostring(now) .. '-' .. math.random(1000000))
+            redis.call('EXPIRE', key, math.ceil(windowMs / 1000))
+            local remaining = limit - count - 1
+            local resetAt = math.ceil(now / 1000) + math.ceil(windowMs / 1000)
+            return {1, remaining, resetAt}
+        else
+            local resetAt = math.ceil(now / 1000) + math.ceil(windowMs / 1000)
+            return {0, 0, resetAt}
+        end
+    """);
+        script.setResultType(List.class);
         return script;
     }
 }

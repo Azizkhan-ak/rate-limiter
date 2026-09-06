@@ -17,23 +17,31 @@ spring:
 rate-limiter:
   rules:
 
+    # Most specific — clientId + route (highest priority)
+    - clientId: "vip-user"
+      route: "/posts/1"
+      limit: 2
+      windowSeconds: 60
+      algorithm: SLIDING_WINDOW
+      targetUrl: "https://jsonplaceholder.typicode.com"
+
     # Default rule — applies to all clients not matched by a more specific rule
     - clientId: "*"
       limit: 10
       windowSeconds: 60
-      algorithm: SLIDING_WINDOW
+      algorithm: FIXED_WINDOW
       targetUrl: "https://jsonplaceholder.typicode.com"
 
     # Stricter limit for a specific route
     - route: "/posts/1"
       limit: 3
       windowSeconds: 60
-      algorithm: SLIDING_WINDOW
+      algorithm: FIXED_WINDOW
       targetUrl: "https://jsonplaceholder.typicode.com"
 
     # VIP client with higher limit
     - clientId: "vip-user"
       limit: 100
       windowSeconds: 60
-      algorithm: SLIDING_WINDOW
+      algorithm: FIXED_WINDOW
       targetUrl: "https://jsonplaceholder.typicode.com"

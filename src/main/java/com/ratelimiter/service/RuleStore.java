@@ -32,6 +32,33 @@ public class RuleStore {
      */
     public Optional<RateLimitRule> resolve(String clientId, String route) {
         // TODO: implement rule resolution with priority
-        return Optional.empty();
-    }
+
+           // first priority is to get rule for this clientId + Route
+
+        Optional<RateLimitRule> rateLimitRule;
+        rateLimitRule = properties.getRules().stream().filter(rule ->
+                   rule.getClientId().equalsIgnoreCase(clientId) &&
+                           (rule.getRoute() !=null && rule.getRoute().equalsIgnoreCase(route))).findFirst();
+        if(rateLimitRule.isPresent()){
+            return rateLimitRule;
+        }
+
+        rateLimitRule = properties.getRules().stream().filter(rule ->
+                rule.getClientId().equalsIgnoreCase(clientId)  &&
+                rule.getRoute() == null ).findFirst();
+        if(rateLimitRule.isPresent()){
+            return rateLimitRule;
+        }
+
+        rateLimitRule = properties.getRules().stream().filter(rule ->
+                (rule.getClientId() == null || rule.getClientId().equalsIgnoreCase("*") )&&
+                         rule.getRoute() != null &&
+                         rule.getRoute().equalsIgnoreCase(route)).findFirst();
+        if(rateLimitRule.isPresent()){
+            return rateLimitRule;
+        }
+
+        return properties.getRules().stream().filter(rule ->
+                rule.getClientId().equalsIgnoreCase("*")).findFirst(); //efault
+        }
 }
