@@ -1,0 +1,25 @@
+# Maven
+target/
+*.class
+*.jar
+*.war
+
+# IntelliJ
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# VS Code
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Spring Boot
+*.pid

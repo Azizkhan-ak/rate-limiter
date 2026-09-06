@@ -1,0 +1,39 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: rate-limiter
+
+  # Redis connection — Lettuce is the default client, no extra config needed
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      # password: yourpassword  # uncomment if Redis has auth enabled
+
+# Rate limiter rules
+# Priority: clientId+route > clientId only > route only > default (*)
+rate-limiter:
+  rules:
+
+    # Default rule — applies to all clients not matched by a more specific rule
+    - clientId: "*"
+      limit: 10
+      windowSeconds: 60
+      algorithm: SLIDING_WINDOW
+      targetUrl: "https://jsonplaceholder.typicode.com"
+
+    # Stricter limit for a specific route
+    - route: "/posts/1"
+      limit: 3
+      windowSeconds: 60
+      algorithm: SLIDING_WINDOW
+      targetUrl: "https://jsonplaceholder.typicode.com"
+
+    # VIP client with higher limit
+    - clientId: "vip-user"
+      limit: 100
+      windowSeconds: 60
+      algorithm: SLIDING_WINDOW
+      targetUrl: "https://jsonplaceholder.typicode.com"
